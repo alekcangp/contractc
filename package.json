@@ -1,0 +1,13 @@
+{
+  "name": "contractcritic",
+  "version": "1.0.0",
+  "description": "ContractCritic — AI investigative critic for smart contracts",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node --env-file=.env.local server.js",
+    "start": "node --env-file=.env.local server.js",
+    "vercel-dev": "vercel dev"
+  },
+  "license": "MIT"
+}

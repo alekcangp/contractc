@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ContractCritic — Don't trust the contract. Interrogate it.</title>
+  <meta name="description" content="AI investigative analysis for smart contracts. Paste an Ethereum contract address, get an evidence-based critical report." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="site-header">
+    <div class="header-inner">
+      <a href="/" class="logo">
+        <span class="logo-mark">CC</span>
+        <span class="logo-text">ContractCritic</span>
+      </a>
+      <nav class="header-nav">
+        <span class="nav-badge">ETHOnline 2026</span>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <!-- ── Landing ─────────────────────────────────────────────── -->
+    <section id="landing" class="landing">
+      <div class="hero">
+        <h1 class="hero-title">Don't trust the contract.<br /><span class="accent">Interrogate it.</span></h1>
+        <p class="hero-sub">The contract says "trust me." We read the fine print.</p>
+        <p class="hero-desc">AI investigative analysis for smart contracts. Paste an Ethereum contract address — ContractCritic pulls verified source code, live indexed data from The Graph, and produces an evidence-based critical report.</p>
+
+        <form id="investigate-form" class="investigate-form" autocomplete="off">
+          <div class="input-wrap">
+            <input
+              type="text"
+              id="address-input"
+              class="address-input"
+              placeholder="0x........................................"
+              spellcheck="false"
+              autocomplete="off"
+              aria-label="Ethereum contract address"
+            />
+            <button type="submit" id="investigate-btn" class="investigate-btn">Investigate</button>
+          </div>
+          <p id="input-error" class="input-error" role="alert"></p>
+        </form>
+
+        <div class="feature-strip">
+          <div class="feature-item"><span class="feature-num">01</span> Source code</div>
+          <div class="feature-item"><span class="feature-num">02</span> Permissions</div>
+          <div class="feature-item"><span class="feature-num">03</span> Upgradeability</div>
+          <div class="feature-item"><span class="feature-num">04</span> On-chain evidence</div>
+          <div class="feature-item"><span class="feature-num">05</span> AI investigation</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── Progress ────────────────────────────────────────────── -->
+    <section id="progress-section" class="progress-section hidden">
+      <div class="progress-inner">
+        <h2 class="section-title">Investigation in progress</h2>
+        <p id="progress-status" class="progress-status">Reading the fine print…</p>
+        <ol id="progress-list" class="progress-list"></ol>
+      </div>
+    </section>
+
+    <!-- ── Error ──────────────────────────────────────────────── -->
+    <section id="error-section" class="error-section hidden">
+      <div class="error-card">
+        <div class="error-icon">!</div>
+        <h2 class="error-title">Investigation halted</h2>
+        <p id="error-message" class="error-message"></p>
+        <button id="error-retry" class="retry-btn">Try again</button>
+      </div>
+    </section>
+
+    <!-- ── Report ──────────────────────────────────────────────── -->
+    <section id="report-section" class="report-section hidden">
+      <div class="report-header">
+        <div>
+          <h2 class="report-title">Investigative Report</h2>
+          <p id="report-address" class="report-address"></p>
+        </div>
+        <div id="risk-badge" class="risk-badge"></div>
+      </div>
+
+      <div class="evidence-sources" id="evidence-sources"></div>
+
+      <div class="report-body" id="report-body"></div>
+
+      <div class="report-footer">
+        <button id="new-investigation" class="retry-btn">New investigation</button>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <p>ContractCritic — AI investigative critic for smart contracts. Not a formal security audit. Findings should be independently verified.</p>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>
