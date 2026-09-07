@@ -18,7 +18,7 @@ The user experience is deliberately simple:
 Paste address → Investigate → Read report
 ```
 
-No registration. No wallet connection. No API keys. No database.
+No registration. No wallet connection. No API keys in the UI. No database.
 
 ---
 
@@ -29,9 +29,11 @@ Contract address
       ↓
 Explorer API (verified source + ABI)
       ↓
-The Graph (schema-aware subgraph discovery + query)
+The Graph Network registry → discover subgraphs by address match
       ↓
-Cloudflare Workers AI (investigation)
+Per subgraph: schema introspection (all fields) → record fetch (≤ GRAPH_QUERY_MAX_ITEMS)
+      ↓
+Cloudflare Workers AI (investigation over source + Graph evidence)
       ↓
 Structured JSON report
 ```
@@ -67,85 +69,88 @@ contractcritic/
 
 ## The Graph integration
 
-The Graph is a **load-bearing** part of ContractCritic — not decorative.
+The Graph is the **primary on-chain evidence source** for ContractCritic — not decorative.
 
 ```
 Source code = capabilities (what the contract CAN do)
-The Graph = observed activity (what has actually been happening on-chain)
+The Graph = observed activity (what has actually happened on-chain)
 AI = reasoning over both
 ```
 
-### Schema-aware subgraph querying
+### Flow
 
-ContractCritic does **not** assume a fixed subgraph schema. Instead it:
+```
+адрес контракта
+  → discoverSubgraphs: Graph Network registry (GRAPH_NETWORK_URL)
+      кандидаты ТОЛЬКО адрес-матч (адрес контракта в манифесте подграфа)
+      → sort by queryFeesAmount desc → топ-N (TOP_SUBGRAPHS_FOR_STATISTICS, default 3)
+  → для каждого источника параллельно:
+      introspectSchema — ВСЕ скалярные поля каждой сущности (без лимитов)
+      fetchRecords — записи каждой сущности (first: GRAPH_QUERY_MAX_ITEMS)
+  → normalizeGraphData → graphSection → buildPrompt → callAI
+```
 
-1. **Introspects** the configured subgraph's GraphQL schema using `__schema` introspection
-2. **Discovers** which entity types actually exist (e.g. `transactions`, `transfers`, `financialsDailySnapshots`, `swaps`)
-3. **Builds a query** using only entities and fields that the subgraph actually supports
-4. **Normalizes** the results into an evidence package
-5. **Passes** the evidence into the AI prompt with explicit instructions to reason over it
+### Principles
 
-This means ContractCritic works with any subgraph deployed on The Graph Network — DeFi, NFT, governance, or custom — without hard-coding entity names.
+1. **No scoring.** No weights, thresholds, name heuristics, or synthetic confidence. The only filter is address-match; the only sort is by `queryFeesAmount`. The LLM assesses source reliability itself from the raw `queryFeesAmount` and `signalledTokens` (GRT) metrics — passed as numbers, as-is.
+
+2. **All fields.** Schema introspection returns every scalar field of every entity — no `.slice()`, no limits.
+
+3. **Completeness in the prompt.** Every entity from introspection appears in the Graph section with ALL its fields. Values come from records if available; otherwise the field is explicitly marked `(нет данных)`. The LLM never has to guess where data is missing.
+
+4. **Section format** (line-by-line, no JSON.stringify, no process metrics):
+
+```
+Источник: <name> (queryFeesAmount: N, signalledTokens: N)
+
+  Entity:
+    field: value
+    field: (нет данных)
+```
+
+5. **LLM rules** (in system message and prompt): The Graph is the primary on-chain source (what actually happened); ABI/code is the contract's capabilities; Graph does not override code conclusions; on discrepancy, flag it; never invent numbers not present in records.
+
+### Data model
+
+```js
+graphData = {
+  available: boolean,
+  sourcesCount: number,
+  sources: [{
+    subgraph: { id, name, network },
+    queryFeesAmount: number,   // raw relevance metric
+    signalledTokens: number,   // GRT, raw
+    fields:  { [entity]: string[] },  // ALL fields — always present
+    records: { [entity]: object[] },  // ≤ GRAPH_QUERY_MAX_ITEMS; may be empty
+  }],
+}
+```
+
+- `fields` = schema (completeness guarantee), `records` = facts. Different obligations, not duplicates.
+- Registry or subgraph unavailable → source is skipped; all unavailable → `available: false`, analysis continues without Graph.
+- Registry endpoint is the current decentralized one (hosted `api.thegraph.com` is dead), overridable via env.
 
 ### How the AI uses Graph evidence
 
 The AI is explicitly instructed to:
 
-- Use The Graph evidence in its reasoning
+- Treat The Graph as primary on-chain evidence (what actually happened on-chain)
+- Treat ABI/source code as the contract's capabilities (what it CAN do)
+- Not let Graph data override code-based conclusions
+- Flag discrepancies between code and Graph data
+- Never invent numbers not present in the records
 - Distinguish facts from source code vs. facts from The Graph
 - Connect code capabilities with observed on-chain activity
-- Never invent Graph data
-
-Example reasoning the AI should produce:
-
-```
-FACT (source code): The contract contains an admin role capable of changing critical parameters.
-FACT (The Graph): Graph data shows repeated activity associated with the privileged mechanism.
-INTERPRETATION: The administrative control is not merely theoretical — it has been actively used,
-representing a meaningful centralization dependency.
-```
 
 ### Honest handling when no subgraph is available
 
-If no suitable subgraph exists, or if the Graph request fails, the report clearly states:
+If no suitable subgraph exists, or if all Graph requests fail, the report clearly states:
 
 ```
 The Graph: No suitable Subgraph was available for this contract.
 ```
 
 The investigation continues with source-code evidence only. No fake green checkmark is shown.
-
----
-
-## Subgraph MCP
-
-### What is Subgraph MCP?
-
-[Subgraph MCP](https://thegraph.com/docs/en/subgraphs/tooling/subgraph-mcp/introduction/) is an open-source Model Context Protocol server that allows MCP-compatible clients (Claude, Cline, Cursor) to discover subgraphs, inspect schemas, and run queries against The Graph Network.
-
-### How ContractCritic uses it
-
-**Subgraph MCP is used during development, not at runtime.**
-
-The MCP server is a persistent process designed for interactive development-time use with MCP-compatible AI clients. It requires stdio/SSE transport and is not designed to run inside a stateless Vercel serverless function.
-
-ContractCritic instead implements **schema-aware subgraph querying directly** using GraphQL introspection — the same capability the MCP provides (`get_schema` + `execute_query`), but via native HTTP `fetch()` calls that work in serverless environments.
-
-This means:
-- **No fake MCP wrapper** — the runtime does real schema introspection and real GraphQL queries
-- **No persistent process required** — fully stateless, Vercel Hobby compatible
-- **Same outcome** — discover entities, inspect schema, query data, pass to AI
-
-### Subgraph Skills
-
-The [Subgraph Skills](https://github.com/graphprotocol/subgraphs-skills) repository was used as implementation guidance for:
-- Understanding subgraph schema patterns
-- GraphQL query design best practices
-- Entity discovery and field selection
-
-### Substreams
-
-[Substreams Skills](https://github.com/streamingfast/substreams-skills) was evaluated but **not integrated**. Substreams provides streaming data pipelines which would add significant complexity without clear benefit for this MVP's use case (one-shot investigation queries). Substreams remains potential future work.
 
 ---
 
@@ -169,7 +174,7 @@ Then open `http://localhost:3000` in your browser.
 `npm run dev` starts `server.js` — a zero-dependency Node.js HTTP server that:
 - Serves static files from `public/`
 - Handles `POST /api/analyze` using the same shared investigation logic as production
-- Calls real Explorer API, The Graph, and Cloudflare Workers AI
+- Calls real Explorer API, The Graph Network registry, and Cloudflare Workers AI
 
 No `vercel dev` required.
 
@@ -182,10 +187,17 @@ Copy `.env.example` to `.env.local` and fill in:
 EXPLORER_API_KEY=your_etherscan_api_key
 EXPLORER_API_URL=https://api.etherscan.io/api
 
-# The Graph — GraphQL endpoint for a subgraph on The Graph Network
-# Example: https://gateway.thegraph.com/api/<API_KEY>/subgraphs/id/<SUBGRAPH_ID>
+# The Graph — API key for the decentralized network gateway
 GRAPH_API_KEY=your_graph_api_key
-GRAPH_API_URL=your_graph_endpoint_url
+
+# The Graph Network registry endpoint (decentralized)
+GRAPH_NETWORK_URL=your_registry_endpoint
+
+# Top-N subgraphs by queryFeesAmount (default 3)
+TOP_SUBGRAPHS_FOR_STATISTICS=3
+
+# Max records per entity per subgraph (default 25)
+GRAPH_QUERY_MAX_ITEMS=25
 
 # Cloudflare Workers AI
 CLOUDFLARE_ACCOUNT_ID=your_cloudflare_account_id
@@ -204,8 +216,10 @@ PORT=3000
 |---|---|
 | `EXPLORER_API_KEY` | Etherscan (or compatible) API key for source code retrieval |
 | `EXPLORER_API_URL` | Explorer API base URL (default: `https://api.etherscan.io/api`) |
-| `GRAPH_API_KEY` | The Graph API key (if required by your provider) |
-| `GRAPH_API_URL` | The Graph GraphQL endpoint URL for a subgraph |
+| `GRAPH_API_KEY` | The Graph API key for the decentralized network gateway |
+| `GRAPH_NETWORK_URL` | The Graph Network registry endpoint for subgraph discovery |
+| `TOP_SUBGRAPHS_FOR_STATISTICS` | Top-N subgraphs by queryFees to use as evidence (default: 3) |
+| `GRAPH_QUERY_MAX_ITEMS` | Max records to fetch per entity per subgraph (default: 25) |
 | `CLOUDFLARE_ACCOUNT_ID` | Cloudflare account ID |
 | `CLOUDFLARE_API_TOKEN` | Cloudflare API token with Workers AI permissions |
 | `CLOUDFLARE_AI_MODEL` | Workers AI model (default: `@cf/google/gemma-4-26b-a4b-it`) |
@@ -250,14 +264,24 @@ The Vercel adapter (`api/analyze.js`) imports the shared investigation logic fro
   },
   "graph": {
     "available": true,
-    "data": {
-      "source": "The Graph",
-      "chain": "ethereum",
-      "subgraph": "Qm...",
-      "entities": ["transactions", "transfers"],
-      "statistics": {},
-      "recentActivity": []
-    }
+    "sourcesCount": 2,
+    "sources": [
+      {
+        "subgraph": { "id": "Qm...", "name": "messari/protocol", "network": "mainnet" },
+        "queryFeesAmount": 125000,
+        "signalledTokens": 50000,
+        "fields": {
+          "transactions": ["id", "timestamp", "from", "to", "amount"],
+          "financialsDailySnapshots": ["id", "date", "totalValueLockedUSD"]
+        },
+        "records": {
+          "transactions": [
+            { "id": "0x...", "timestamp": "1700000000", "from": "0x...", "to": "0x...", "amount": "100" }
+          ],
+          "financialsDailySnapshots": []
+        }
+      }
+    ]
   },
   "report": {
     "executiveSummary": "...",
@@ -282,7 +306,7 @@ The Vercel adapter (`api/analyze.js`) imports the shared investigation logic fro
 {
   "graph": {
     "available": false,
-    "reason": "No suitable Subgraph available"
+    "reason": "No suitable Subgraph available for this contract"
   }
 }
 ```
@@ -321,24 +345,6 @@ The AI is instructed to never invent functions, addresses, transactions, events,
 - **Graph coverage depends on available Subgraphs** — not every contract has one
 - **AI analysis is not a formal security audit** — findings should be independently verified
 - **Cloudflare Workers AI free tier** — if the daily allowance is exhausted, a clear error is returned
-
----
-
-## Hackathon architecture (ETHGlobal / The Graph)
-
-```
-ContractCritic combines verified smart-contract source code with live indexed
-blockchain data from The Graph.
-
-The source code tells us what the contract CAN do.
-The Graph tells us what has actually been happening on-chain.
-The AI reasons over both.
-```
-
-The Graph is visibly represented in the UI and report:
-- The evidence sources panel shows whether Graph data was available
-- The on-chain evidence section displays the subgraph deployment ID, entities found, and AI findings based on that data
-- When no subgraph is available, this is shown honestly with no fake checkmark
 
 ---
 

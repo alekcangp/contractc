@@ -202,25 +202,6 @@
     sources.push('<div class="evidence-source"><span class="check">&#10003;</span> AI investigation</div>');
     evidenceSources.innerHTML = sources.join("");
 
-    // Graph metadata banner (shows subgraph deployment ID + entities)
-    var graphMetaHtml = "";
-    if (data.graph && data.graph.available && data.graph.data) {
-      var gd = data.graph.data;
-      var subgraphId = gd.subgraph || "unknown";
-      var entities = (gd.entities || []).join(", ") || "none";
-      var activityCount = (gd.recentActivity || []).length;
-      graphMetaHtml = '<div class="graph-meta">'
-        + '<span class="graph-meta-label">SUBGRAPH</span> '
-        + '<span class="graph-meta-value">' + escapeHtml(subgraphId) + '</span>'
-        + ' <span class="graph-meta-sep">|</span> '
-        + '<span class="graph-meta-label">ENTITIES</span> '
-        + '<span class="graph-meta-value">' + escapeHtml(entities) + '</span>'
-        + ' <span class="graph-meta-sep">|</span> '
-        + '<span class="graph-meta-label">ACTIVITY RECORDS</span> '
-        + '<span class="graph-meta-value">' + activityCount + '</span>'
-        + '</div>';
-    }
-
     // Build report blocks
     var html = "";
 
@@ -255,11 +236,11 @@
     // On-chain evidence (Graph)
     if (data.graph && data.graph.available) {
       var graphFindings = report.onChainEvidence || [];
-      var graphHtml = graphMetaHtml || "";
+      var graphHtml = "";
       if (graphFindings.length > 0) {
-        graphHtml += renderFindings(graphFindings);
+        graphHtml = renderFindings(graphFindings);
       } else {
-        graphHtml += '<div class="graph-unavailable">Live data was retrieved but the AI did not surface specific on-chain evidence findings.</div>';
+        graphHtml = '<div class="graph-unavailable">Live data was retrieved but the AI did not surface specific on-chain evidence findings.</div>';
       }
       html += block("On-Chain Evidence (The Graph)", graphHtml);
     } else {
